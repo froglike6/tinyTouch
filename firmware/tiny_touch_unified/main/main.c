@@ -11,6 +11,7 @@
 #include "config_console.h"
 #include "device_config.h"
 #include "fingerprint.h"
+#include "fido.h"
 #include "piv.h"
 #include "touch_pin_hid.h"
 #include "usb_ccid.h"
@@ -35,6 +36,8 @@ static void recover_device(void) {
         (count > 0 && fingerprint_delete_all() && fingerprint_count() == 0)) {
       ESP_ERROR_CHECK(nvs_flash_erase());
       ESP_ERROR_CHECK(nvs_flash_init());
+      if (esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_NVS, "fido"))
+        ESP_ERROR_CHECK(nvs_flash_erase_partition("fido"));
       ESP_ERROR_CHECK(esp_partition_erase_range(partition, 0, partition->size));
       ESP_LOGW("tiny_touch", "RECOVERY COMPLETE: sensor and device state cleared");
       return;
@@ -64,8 +67,9 @@ void app_main(void) {
   // Prime the sensor's live-detection state before the HID task begins. This
   // is the same probe STATUS performs; doing it at boot avoids requiring a
   // host status command after USB reconnect before the first fingerprint.
-  (void)fingerprint_count();
+  int enrolled_fingers = fingerprint_count();
   piv_init();
+  fido_start(enrolled_fingers);
   usb_ccid_start(piv_handle_apdu);
   config_console_start();
   touch_pin_hid_start();

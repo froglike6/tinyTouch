@@ -6,6 +6,9 @@
 static TickType_t now;
 static TickType_t busy_until;
 static bool locked;
+static bool authorization_locked;
+static unsigned mutex_count, captures, searches;
+static bool fresh_test, hold_finger, wrong_finger, cancel_after_capture, cancel_after_search;
 static uint8_t tx[64], rx[32];
 static size_t tx_size, rx_size;
 static uint8_t led_confirmation;
@@ -22,8 +25,12 @@ BaseType_t xTaskCreate(void (*task)(void *), const char *name, uint32_t stack,
   led_task = task;
   return pdPASS;
 }
-SemaphoreHandle_t xSemaphoreCreateMutex(void) { return &locked; }
+SemaphoreHandle_t xSemaphoreCreateMutex(void) {
+  assert(mutex_count < 2);
+  return mutex_count++ == 0 ? &locked : &authorization_locked;
+}
 BaseType_t xSemaphoreTake(SemaphoreHandle_t mutex, TickType_t timeout) {
+  if (*mutex && mutex == &authorization_locked) { now += timeout; return 0; }
   assert(!*mutex);
   if (now < busy_until) {
     if (timeout < busy_until - now) return 0;
@@ -62,6 +69,10 @@ int uart_write_bytes(uart_port_t port, const void *data, size_t size) {
   assert(tx[tx_size - 2] == (sum >> 8) && tx[tx_size - 1] == (sum & 255));
 
   uint8_t confirmation = 0;
+  if (tx[9] == 0x01) {
+    captures++;
+    if (fresh_test && !hold_finger && captures == 2) confirmation = 0x02;
+  }
   if (tx[9] == 0x3c) {
     assert(tx_size == 16);
     memcpy(light, tx + 10, 4);
@@ -73,7 +84,8 @@ int uart_write_bytes(uart_port_t port, const void *data, size_t size) {
   rx[9] = confirmation;
   rx_size = 10;
   if (tx[9] == 0x04) {
-    const uint8_t match[] = {0, 1, 0, 64};
+    searches++;
+    const uint8_t match[] = {0, 1, 0, wrong_finger ? 0 : 64};
     memcpy(rx + rx_size, match, sizeof(match));
     rx_size += sizeof(match);
     rx[8] += sizeof(match);
@@ -97,6 +109,11 @@ int uart_read_bytes(uart_port_t port, void *data, uint32_t size, TickType_t time
   return (int)copied;
 }
 
+static bool verification_cancelled(void) {
+  assert(fingerprint_prompted_authorization_active());
+  return (cancel_after_capture && captures >= 2) || (cancel_after_search && searches > 0);
+}
+
 int main(int argc, char **argv) {
   assert(argc == 2);
   fingerprint_init();
@@ -118,6 +135,30 @@ int main(int argc, char **argv) {
     fingerprint_led_service(true, now);
     xSemaphoreGive(&locked);
     assert(led_commands == before_retry + 1);
+    assert(light[0] == 3 && light[1] == 1 && light[2] == 1);
+  } else if (strncmp(argv[1], "fresh_", 6) == 0) {
+    fresh_test = true;
+    hold_finger = strcmp(argv[1], "fresh_held") == 0;
+    wrong_finger = strcmp(argv[1], "fresh_wrong") == 0;
+    cancel_after_capture = strcmp(argv[1], "fresh_cancel") == 0;
+    cancel_after_search = strcmp(argv[1], "fresh_cancel_during_match") == 0;
+    bool busy = strcmp(argv[1], "fresh_busy") == 0;
+    authorization_locked = busy;
+    if (strcmp(argv[1], "fresh_clock_wrap") == 0) now = UINT32_MAX - 50;
+    fingerprint_verification_t result = fingerprint_verify_fresh(verification_cancelled);
+    if (hold_finger || wrong_finger) {
+      assert(result == FINGERPRINT_VERIFY_TIMEOUT);
+      assert(hold_finger ? searches == 0 : searches == 1);
+    } else if (cancel_after_capture || cancel_after_search) {
+      assert(result == FINGERPRINT_VERIFY_CANCELLED);
+      assert(cancel_after_capture ? searches == 0 : searches == 1);
+    } else if (busy) {
+      assert(result == FINGERPRINT_VERIFY_BUSY && captures == 0);
+    } else {
+      assert(result == FINGERPRINT_VERIFIED && captures == 3 && searches == 1);
+    }
+    assert(!fingerprint_prompted_authorization_active());
+    assert(!locked && (busy || !authorization_locked));
     assert(light[0] == 3 && light[1] == 1 && light[2] == 1);
   } else {
     return 2;

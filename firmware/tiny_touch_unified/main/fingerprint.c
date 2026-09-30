@@ -2,6 +2,7 @@
 #include "fingerprint_led.h"
 
 #include <string.h>
+#include <stdatomic.h>
 
 #include "driver/gpio.h"
 #include "driver/uart.h"
@@ -22,7 +23,8 @@ static const uint16_t END_SLOT = 5;
 static const uint32_t FINGER_WAIT_MS = 7000;
 
 static SemaphoreHandle_t fp_mutex;
-static volatile bool prompted_authorization_active;
+static SemaphoreHandle_t authorization_mutex;
+static atomic_bool prompted_authorization_active;
 static bool sensor_ready;
 static portMUX_TYPE sensor_state_lock = portMUX_INITIALIZER_UNLOCKED;
 
@@ -83,7 +85,7 @@ static bool fp_command(uint8_t instruction, const uint8_t *params, size_t param_
   };
 
   if (uart_write_bytes(FP_UART, header, sizeof(header)) != sizeof(header) ||
-      uart_write_bytes(FP_UART, payload, payload_len) != payload_len) {
+      uart_write_bytes(FP_UART, payload, payload_len) != (int)payload_len) {
     note_transport_failure();
     return false;
   }
@@ -347,6 +349,8 @@ void fingerprint_init(void) {
                                UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE));
   fp_mutex = xSemaphoreCreateMutex();
   configASSERT(fp_mutex != NULL);
+  authorization_mutex = xSemaphoreCreateMutex();
+  configASSERT(authorization_mutex != NULL);
 
   uint8_t params[] = {0x00, 0x00, 0x00, 0x00};
   bool ok = false;
@@ -398,11 +402,12 @@ bool fingerprint_authorize_prompted(void (*prompt)(void)) {
   // TOUCH_OUT is not reliable enough to gate a foreground capture on every
   // supported module. Reuse HID's quiet matcher and keep polling until the
   // user presents a valid enrolled finger or the authorization window ends.
+  if (xSemaphoreTake(authorization_mutex, pdMS_TO_TICKS(200)) != pdTRUE) return false;
   prompted_authorization_active = true;
   if (prompt) prompt();
-  TickType_t deadline = xTaskGetTickCount() + pdMS_TO_TICKS(FINGER_WAIT_MS);
+  TickType_t started = xTaskGetTickCount();
   bool ok = false;
-  while (xTaskGetTickCount() < deadline) {
+  while ((TickType_t)(xTaskGetTickCount() - started) < pdMS_TO_TICKS(FINGER_WAIT_MS)) {
     if (fingerprint_authorize_poll_match().slot != 0) {
       ok = true;
       break;
@@ -410,7 +415,47 @@ bool fingerprint_authorize_prompted(void (*prompt)(void)) {
     vTaskDelay(pdMS_TO_TICKS(120));
   }
   prompted_authorization_active = false;
+  xSemaphoreGive(authorization_mutex);
   return ok;
+}
+
+fingerprint_verification_t fingerprint_verify_fresh(bool (*cancelled)(void)) {
+  if (xSemaphoreTake(authorization_mutex, pdMS_TO_TICKS(200)) != pdTRUE)
+    return FINGERPRINT_VERIFY_BUSY;
+  prompted_authorization_active = true;
+  fingerprint_led_idle();
+  TickType_t started = xTaskGetTickCount();
+  bool lifted = false;
+  fingerprint_verification_t result = FINGERPRINT_VERIFY_TIMEOUT;
+  while ((TickType_t)(xTaskGetTickCount() - started) < pdMS_TO_TICKS(30000)) {
+    if (cancelled()) { result = FINGERPRINT_VERIFY_CANCELLED; break; }
+    if (fp_take(50)) {
+      uint8_t confirm = 0xff;
+      bool captured = fp_command(0x01, NULL, 0, &confirm, NULL, NULL, 350);
+      // Require an actual no-finger response before capturing an approval.
+      // This works even on modules whose TOUCH_OUT signal is unreliable.
+      if (captured && confirm == 0x02) lifted = true;
+      if (captured && confirm == 0x00 && lifted && !cancelled()) {
+        fingerprint_match_t match = fingerprint_match_captured(true);
+        bool verified = match.slot != 0 && !cancelled() &&
+            (TickType_t)(xTaskGetTickCount() - started) < pdMS_TO_TICKS(30000);
+        set_aura(verified ? FP_LED_GREEN : FP_LED_RED);
+        fp_give();
+        vTaskDelay(pdMS_TO_TICKS(350));
+        fingerprint_led_idle();
+        if (verified) { result = FINGERPRINT_VERIFIED; break; }
+        lifted = false;
+      } else {
+        fp_give();
+      }
+    }
+    vTaskDelay(pdMS_TO_TICKS(40));
+  }
+  if (cancelled()) result = FINGERPRINT_VERIFY_CANCELLED;
+  fingerprint_led_idle();
+  prompted_authorization_active = false;
+  xSemaphoreGive(authorization_mutex);
+  return result;
 }
 
 bool fingerprint_prompted_authorization_active(void) {

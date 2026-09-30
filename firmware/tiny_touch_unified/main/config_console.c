@@ -15,6 +15,7 @@
 
 #include "device_config.h"
 #include "fingerprint.h"
+#include "fido.h"
 #include "firmware_update.h"
 #include "piv.h"
 #include "touch_pin_hid.h"
@@ -126,6 +127,7 @@ static void authorize(void) {
   return;
 #endif
   int count = fingerprint_count();
+  fido_sensor_count_changed(count);
   if (count < 0) { reply("ERR AUTH sensor=offline"); return; }
   bool ok = count == 0 || (count > 0 && fingerprint_authorize_prompted(touch_prompt));
   if (!ok) { reply("ERR AUTH no_match"); return; }
@@ -146,18 +148,20 @@ static void clear_ota(void) {
 static void status(void) {
   char line[320];
   int count = fingerprint_count();
+  fido_sensor_count_changed(count);
   // fingerprint_count probes the UART and can update the live health state.
   // Read health after that probe so one STATUS line cannot say ready with an
   // unavailable fingerprint count.
   bool sensor_is_ready = fingerprint_is_ready();
   snprintf(line, sizeof(line),
            "OK STATUS protocol=6 firmware=%s build=%s mode=%s piv=%s sensor=%s fingerprints=%d "
-           "hosts=%u ota=%s",
+           "hosts=%u ota=%s fido=%s passkeys=%u",
            TINYTOUCH_FIRMWARE_VERSION, TINYTOUCH_BUILD_ID, device_config_mode_name(),
            piv_uses_provisioned_keys() ? "ready" : "unconfigured",
            sensor_is_ready ? "ready" : "offline", count,
            (unsigned)device_config_hid_host_count(), firmware_update_staged() ? "staged" :
-           (firmware_update_active() ? "writing" : "idle"));
+           (firmware_update_active() ? "writing" : "idle"),
+           fido_ready() ? "ready" : "unavailable", (unsigned)fido_resident_count());
   reply(line);
 }
 
@@ -232,15 +236,18 @@ static void fingerprint_command(char *arguments) {
   } else if (strcmp(arguments, "CLEAR") == 0) {
     ok = fingerprint_delete_all() && device_config_set_fingerprint_profile_views(0);
   }
+  fido_sensor_count_changed(fingerprint_count());
   reply(ok ? "OK FINGER" : "ERR FINGER");
 }
 
 static void factory_reset(void) {
   if (!require_authorized()) return;
+  if (fido_operation_active()) { reply("ERR RESET BUSY"); return; }
   bool ok = fingerprint_delete_all() && nvs_flash_erase() == ESP_OK &&
-            nvs_flash_init() == ESP_OK && device_config_factory_reset();
+            nvs_flash_init() == ESP_OK && device_config_factory_reset() && fido_factory_reset();
   if (ok) {
     piv_reload_keys();
+    fido_sensor_count_changed(0);
     authorized_until = 0;
   }
   reply(ok ? "OK RESET FACTORY" : "ERR RESET FACTORY");

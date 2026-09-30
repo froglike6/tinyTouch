@@ -1,0 +1,20 @@
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["ALL"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+# Subprocesses execute the built, explicitly selected test harness with shell=False.
+"test_*.py" = ["D", "S101", "PLR2004", "ARG", "S603"]
+"conftest.py" = ["D", "S603"]
+
+[tool.basedpyright]
+typeCheckingMode = "all"
+pythonVersion = "3.12"
+include = ["."]
+stubPath = "typing"

@@ -9,6 +9,7 @@
 #include "esp_log.h"
 #include "esp_random.h"
 #include "fingerprint.h"
+#include "fido.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
@@ -83,7 +84,7 @@ static bool wait_hid_ready(void) {
 static bool send_key(uint8_t modifier, uint8_t key) {
   uint8_t report[6] = {key, 0, 0, 0, 0, 0};
   if (!wait_hid_ready()) return false;
-  if (!tud_hid_keyboard_report(0, modifier, report)) return false;
+  if (fido_operation_active() || !tud_hid_keyboard_report(0, modifier, report)) return false;
   vTaskDelay(pdMS_TO_TICKS(device_config_typing_delay_ms()));
   if (!wait_hid_ready()) return false;
   if (!tud_hid_keyboard_report(0, 0, NULL)) return false;
@@ -405,6 +406,12 @@ static void touch_hid_task(void *arg) {
       vTaskDelay(pdMS_TO_TICKS(10));
       continue;
     }
+    if (fido_operation_active()) {
+      runtime.presence_armed = false;
+      auth_wait_for_lift(&runtime, xTaskGetTickCount());
+      vTaskDelay(pdMS_TO_TICKS(10));
+      continue;
+    }
     TickType_t now = xTaskGetTickCount();
     if (usb_sensor_probe_pending && now >= usb_sensor_probe_at) {
       // Match the helper's successful post-enumeration STATUS probe. The
@@ -459,6 +466,10 @@ static void touch_hid_task(void *arg) {
     runtime.presence_armed = false;
     touch_pin_hid_log_event("touch_detected", 0);
     fingerprint_match_t match = fingerprint_authorize_poll_match();
+    if (fido_operation_active()) {
+      auth_wait_for_lift(&runtime, xTaskGetTickCount());
+      continue;
+    }
     if (match.slot == 0) {
       touch_pin_hid_log_event("finger_no_match", 0);
       auth_wait_for_lift(&runtime, now);
@@ -472,7 +483,7 @@ static void touch_hid_task(void *arg) {
     // sensor green when a helper, USB endpoint, or PIN field is unavailable.
     vTaskDelay(pdMS_TO_TICKS(350));
     fingerprint_led_idle();
-    handle_fingerprint_match(match);
+    if (!fido_operation_active()) handle_fingerprint_match(match);
     auth_wait_for_lift(&runtime, xTaskGetTickCount());
   }
 }
@@ -502,8 +513,8 @@ bool touch_pin_hid_submit_response(const char *response) {
 }
 
 uint8_t const *tud_hid_descriptor_report_cb(uint8_t instance) {
-  (void)instance;
-  return tiny_touch_hid_report_descriptor;
+  if (instance == TINYTOUCH_FIDO_HID_INSTANCE) return tiny_touch_fido_report_descriptor;
+  return instance == TINYTOUCH_KEYBOARD_HID_INSTANCE ? tiny_touch_hid_report_descriptor : NULL;
 }
 
 uint16_t tud_hid_get_report_cb(uint8_t instance, uint8_t report_id,
@@ -520,9 +531,6 @@ uint16_t tud_hid_get_report_cb(uint8_t instance, uint8_t report_id,
 void tud_hid_set_report_cb(uint8_t instance, uint8_t report_id,
                            hid_report_type_t report_type,
                            uint8_t const *buffer, uint16_t bufsize) {
-  (void)instance;
-  (void)report_id;
-  (void)report_type;
-  (void)buffer;
-  (void)bufsize;
+  if (instance == TINYTOUCH_FIDO_HID_INSTANCE && report_id == 0 && report_type == HID_REPORT_TYPE_OUTPUT)
+    fido_receive_report(buffer, bufsize);
 }

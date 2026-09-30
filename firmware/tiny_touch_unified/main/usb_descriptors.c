@@ -11,20 +11,28 @@
 #define ITF_NUM_CCID 0
 #define ITF_NUM_HID 1
 #define ITF_NUM_CDC 2
-#define ITF_NUM_TOTAL 4
+#define ITF_NUM_FIDO 4
+#define ITF_NUM_TOTAL 5
 
 #define EPNUM_CCID_OUT 0x01
 #define EPNUM_CCID_IN 0x81
 #define EPNUM_HID 0x82
-#define EPNUM_CDC_NOTIF 0x83
 #define EPNUM_CDC_OUT 0x04
 #define EPNUM_CDC_IN 0x84
+#define EPNUM_FIDO_OUT 0x05
+#define EPNUM_FIDO_IN 0x85
 #define CCID_DESC_LEN (9 + 54 + 7 + 7)
+#define CDC_DESC_LEN (TUD_CDC_DESC_LEN - 7)
 #define CONFIG_TOTAL_LEN \
-  (TUD_CONFIG_DESC_LEN + CCID_DESC_LEN + TUD_HID_DESC_LEN + TUD_CDC_DESC_LEN)
+  (TUD_CONFIG_DESC_LEN + CCID_DESC_LEN + TUD_HID_DESC_LEN + CDC_DESC_LEN + \
+   TUD_HID_INOUT_DESC_LEN)
 
 uint8_t const tiny_touch_hid_report_descriptor[] = {
   TUD_HID_REPORT_DESC_KEYBOARD()
+};
+
+uint8_t const tiny_touch_fido_report_descriptor[] = {
+  TUD_HID_REPORT_DESC_FIDO_U2F(64)
 };
 
 const tusb_desc_device_t tiny_touch_device_descriptor = {
@@ -37,7 +45,7 @@ const tusb_desc_device_t tiny_touch_device_descriptor = {
   .bMaxPacketSize0 = CFG_TUD_ENDPOINT0_SIZE,
   .idVendor = USB_VID,
   .idProduct = USB_PID,
-  .bcdDevice = 0x0100,
+  .bcdDevice = 0x0200,
   .iManufacturer = 0x01,
   .iProduct = 0x02,
   .iSerialNumber = 0x03,
@@ -79,8 +87,23 @@ const uint8_t tiny_touch_configuration_descriptor[] = {
   TUD_HID_DESCRIPTOR(ITF_NUM_HID, 0, HID_ITF_PROTOCOL_KEYBOARD,
                      sizeof(tiny_touch_hid_report_descriptor), EPNUM_HID, 8, 10),
 
-  TUD_CDC_DESCRIPTOR(ITF_NUM_CDC, 0, EPNUM_CDC_NOTIF, 8,
-                     EPNUM_CDC_OUT, EPNUM_CDC_IN, 64),
+  // ESP32-S3 has five IN FIFOs including EP0. CDC needs only its bulk pair;
+  // omitting optional serial-state notifications leaves an IN FIFO for FIDO.
+  8, TUSB_DESC_INTERFACE_ASSOCIATION, ITF_NUM_CDC, 2,
+     TUSB_CLASS_CDC, CDC_COMM_SUBCLASS_ABSTRACT_CONTROL_MODEL, 0, 0,
+  9, TUSB_DESC_INTERFACE, ITF_NUM_CDC, 0, 0,
+     TUSB_CLASS_CDC, CDC_COMM_SUBCLASS_ABSTRACT_CONTROL_MODEL, 0, 0,
+  5, TUSB_DESC_CS_INTERFACE, CDC_FUNC_DESC_HEADER, 0x20, 0x01,
+  5, TUSB_DESC_CS_INTERFACE, CDC_FUNC_DESC_CALL_MANAGEMENT, 0, ITF_NUM_CDC + 1,
+  4, TUSB_DESC_CS_INTERFACE, CDC_FUNC_DESC_ABSTRACT_CONTROL_MANAGEMENT, 0,
+  5, TUSB_DESC_CS_INTERFACE, CDC_FUNC_DESC_UNION, ITF_NUM_CDC, ITF_NUM_CDC + 1,
+  9, TUSB_DESC_INTERFACE, ITF_NUM_CDC + 1, 0, 2, TUSB_CLASS_CDC_DATA, 0, 0, 0,
+  7, TUSB_DESC_ENDPOINT, EPNUM_CDC_OUT, TUSB_XFER_BULK, 64, 0, 0,
+  7, TUSB_DESC_ENDPOINT, EPNUM_CDC_IN, TUSB_XFER_BULK, 64, 0, 0,
+
+  TUD_HID_INOUT_DESCRIPTOR(ITF_NUM_FIDO, 0, HID_ITF_PROTOCOL_NONE,
+                          sizeof(tiny_touch_fido_report_descriptor),
+                          EPNUM_FIDO_OUT, EPNUM_FIDO_IN, 64, 5),
 };
 
 static char tiny_touch_serial[20] = "TT-PIV-PROTOTYPE";

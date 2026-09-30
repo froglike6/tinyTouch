@@ -16,6 +16,13 @@ void fingerprint_led_idle(void);
 fingerprint_match_t fingerprint_authorize_poll_match(void);
 bool fingerprint_authorize_prompted(void (*prompt)(void));
 bool fingerprint_prompted_authorization_active(void);
+typedef enum {
+  FINGERPRINT_VERIFIED,
+  FINGERPRINT_VERIFY_TIMEOUT,
+  FINGERPRINT_VERIFY_CANCELLED,
+  FINGERPRINT_VERIFY_BUSY,
+} fingerprint_verification_t;
+fingerprint_verification_t fingerprint_verify_fresh(bool (*cancelled)(void));
 int fingerprint_count(void);
 bool fingerprint_enroll(uint16_t slot, void (*prompt)(const char *message));
 bool fingerprint_delete(uint16_t slot);
