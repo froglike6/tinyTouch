@@ -6,7 +6,7 @@ description: USB FIDO2 support in the personal tinyTouch fork, installation, and
 # FIDO2 development firmware
 
 The personal fork's `feature/fido2` branch adds FIDO2 to the custom LED firmware.
-Version `0.2.0-dev.1` exposes a USB FIDO HID interface alongside the existing
+Version `0.2.0-dev.2` exposes a USB FIDO HID interface alongside the existing
 PIV smart card, keyboard, and CDC configuration console.
 
 ## Supported operations

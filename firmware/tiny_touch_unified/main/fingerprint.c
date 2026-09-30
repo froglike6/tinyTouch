@@ -57,7 +57,7 @@ static uint16_t fp_checksum(uint8_t packet_id, const uint8_t *payload, size_t pa
 static bool fp_response_checksum_valid(const uint8_t *packet, size_t packet_len) {
   if (packet_len < 11) return false;
   uint16_t response_len = ((uint16_t)packet[7] << 8) | packet[8];
-  if (response_len < 2 || packet_len != 9 + response_len) return false;
+  if (response_len < 2 || packet_len != 9 + (size_t)response_len) return false;
   size_t payload_len = response_len - 2;
   uint16_t expected = fp_checksum(packet[6], packet + 9, payload_len);
   uint16_t received = ((uint16_t)packet[packet_len - 2] << 8) |

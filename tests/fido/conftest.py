@@ -33,7 +33,7 @@ def host_binary(tmp_path_factory: pytest.TempPathFactory) -> Path:
     )
     _ = subprocess.run(
         [cmake, "--build", str(build), "-j", "4"],
-        check=True, capture_output=True, text=True, timeout=180,
+        check=True, text=True, timeout=180,
     )
     return build / "fido-host"
 
