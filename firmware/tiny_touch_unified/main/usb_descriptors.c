@@ -19,8 +19,10 @@
 #define EPNUM_HID 0x82
 #define EPNUM_CDC_OUT 0x04
 #define EPNUM_CDC_IN 0x84
-#define EPNUM_FIDO_OUT 0x05
-#define EPNUM_FIDO_IN 0x85
+// The DWC2 backend uses the IN endpoint number as its TX FIFO index.
+// ESP32-S3 provides FIFOs 1-4; reuse EP3 freed by CDC notifications.
+#define EPNUM_FIDO_OUT 0x03
+#define EPNUM_FIDO_IN 0x83
 #define CCID_DESC_LEN (9 + 54 + 7 + 7)
 #define CDC_DESC_LEN (TUD_CDC_DESC_LEN - 7)
 #define CONFIG_TOTAL_LEN \

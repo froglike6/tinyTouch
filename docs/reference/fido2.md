@@ -6,7 +6,7 @@ description: USB FIDO2 support in the personal tinyTouch fork, installation, and
 # FIDO2 development firmware
 
 The personal fork's `feature/fido2` branch adds FIDO2 to the custom LED firmware.
-Version `0.2.0-dev.2` exposes a USB FIDO HID interface alongside the existing
+Version `0.2.0-dev.3` exposes a USB FIDO HID interface alongside the existing
 PIV smart card, keyboard, and CDC configuration console.
 
 ## Supported operations
@@ -46,6 +46,8 @@ inherits the existing sensor's unauthenticated UART connection.
 
 The ESP32-S3 permits five IN endpoints including endpoint zero. Adding FIDO HID
 uses the endpoint previously assigned to unused CDC serial-state notifications.
+FIDO uses endpoint pair `0x03`/`0x83`. The DWC2 backend maps IN endpoint numbers
+to TX FIFO numbers, and the ESP32-S3 provides only FIFOs 1-4 beyond endpoint zero.
 The CDC console keeps its control interface and bulk data endpoints, with no
 notification endpoint. The USB device revision is `0x0200` so hosts can recognize
 the descriptor change.
