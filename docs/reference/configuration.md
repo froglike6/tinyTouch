@@ -52,6 +52,18 @@ Removing the last host selects PIV mode.
 
 `piv=ready` means the device has a private key and certificate. Run `sc_auth identities` to check macOS pairing.
 
+## FIDO2 state
+
+On the `feature/fido2` branch, `fido=ready` means the authenticator storage and
+cryptography initialized successfully. `passkeys=N` counts discoverable
+credentials, up to 16. These credentials use a separate `fido` NVS partition.
+`fido=unavailable` can indicate an old partition table or invalid stored data;
+the firmware preserves that data and keeps PIV available.
+
+See [FIDO2 development firmware](/reference/fido2) for installation and protocol
+support. Both an authorized factory reset and physical recovery clear FIDO2
+credentials. A CTAP authenticator reset clears only FIDO2 credentials.
+
 ## macOS paths
 
 | Path | Purpose |

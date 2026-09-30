@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, feature/fido2]
   pull_request:
   workflow_dispatch:
 
@@ -45,7 +45,7 @@ jobs:
             exit 0
           fi
           if git diff --quiet "$base" "$GITHUB_SHA" -- \
-            firmware VERSION release/assemble-release.py \
+            firmware tests/fido tests/firmware VERSION release/assemble-release.py \
             release/release_integrity.py .github/workflows/ci.yml; then
             echo "firmware=false" >> "$GITHUB_OUTPUT"
           else
@@ -113,6 +113,21 @@ jobs:
             --recovery-build firmware/tiny_touch_unified/build-recovery \
             --build-id "${GITHUB_SHA:0:12}"
           python release/release_integrity.py firmware dist/release --commit "$GITHUB_SHA"
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7
+        with:
+          version: "0.12.17"
+      - name: Test FIDO2, USB descriptors, and fresh fingerprint verification
+        # Reuse the SDK components downloaded by the firmware build.
+        run: |
+          source /opt/esp/idf/export.sh
+          uv run --python 3.12 --with fido2==2.1.1 --with pytest==8.4.2 \
+            pytest tests/fido -q
+      - name: Check FIDO test types and style
+        run: |
+          uv run --python 3.12 --with fido2==2.1.1 --with pytest==8.4.2 \
+            --with basedpyright==1.40.1 --with ruff==0.16.9 \
+            basedpyright --project tests/fido/pyproject.toml
+          uv run --python 3.12 --with ruff==0.16.9 ruff check tests/fido
 
   macos-cli:
     needs: changes

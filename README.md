@@ -1,3 +1,14 @@
+## Personal fork
+
+This fork keeps the custom sensor ring behavior: fade out after three idle
+seconds, wake on touch, and restore blue after authentication feedback.
+`main` contains that firmware. `feature/fido2` adds a USB FIDO2 authenticator
+alongside PIV, keyboard HID, and the configuration console.
+
+The FIDO2 branch supports fingerprint verification and up to 16 discoverable
+passkeys. See [FIDO2 development firmware](docs/reference/fido2.md) for the
+supported protocol, build instructions, installation, and verification limits.
+
 ## interested in preassembled versions? pre order now:
 [tinytouch.dev](https://tinytouch.dev)
 
